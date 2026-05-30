@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Outfit, Space_Mono } from "next/font/google";
 import "./globals.css";
-import Script from "next/script";
 import { Providers } from "@/components/Providers";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
@@ -45,8 +44,6 @@ export default function RootLayout({
           <main className="flex-grow">{children}</main>
           <Footer />
         </Providers>
-        
-        <Script src="https://js.paystack.co/v1/inline.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

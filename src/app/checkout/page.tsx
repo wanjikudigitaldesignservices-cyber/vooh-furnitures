@@ -58,7 +58,39 @@ export default function CheckoutPage() {
   
   const total = subtotal + deliveryFee;
 
-  const handlePaystackPayment = async (e: React.FormEvent) => {
+  const [waitingForPayment, setWaitingForPayment] = useState(false);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeOrderId) return;
+
+    // Listen for changes on the specific order in Supabase
+    const channel = supabase
+      .channel(`order-${activeOrderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${activeOrderId}`,
+        },
+        (payload) => {
+          if (payload.new.status === "paid") {
+            toast.success("Payment successful!");
+            clearCart();
+            router.push(`/order-confirmation/${activeOrderId}`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeOrderId, supabase, router, clearCart]);
+
+  const handleMpesaPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || !phone) {
       toast.error("Please fill in all contact details");
@@ -95,41 +127,37 @@ export default function CheckoutPage() {
 
       if (orderError) throw orderError;
 
-      // 2. Initialize Paystack
-      const paystack = new (window as any).PaystackPop();
-      paystack.newTransaction({
-        key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_placeholder",
-        email,
-        amount: total * 100, // Paystack expects amount in minor units (kobo/cents)
-        currency: "KES",
-        ref: `VOOH-${Math.floor(Math.random() * 1000000000)}`,
-        metadata: {
-          custom_fields: [
-            { display_name: "Order ID", variable_name: "order_id", value: orderData.id }
-          ]
+      setActiveOrderId(orderData.id);
+
+      // 2. Trigger STK Push
+      const response = await fetch("/api/mpesa/stkpush", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-        onSuccess: async (transaction: any) => {
-          toast.success("Payment successful!");
-          
-          // Update order status in Supabase (Normally done by webhook, but we do client fallback too)
-          await supabase
-            .from("orders")
-            .update({ status: "paid", paystack_ref: transaction.reference })
-            .eq("id", orderData.id);
-            
-          clearCart();
-          router.push(`/order-confirmation/${orderData.id}`);
-        },
-        onCancel: () => {
-          toast.error("Payment was cancelled");
-          setLoading(false);
-        }
+        body: JSON.stringify({
+          phone: phone,
+          amount: total,
+          orderId: orderData.id,
+        }),
       });
-      
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to initialize checkout. Please try again.");
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to trigger payment");
+      }
+
+      // Success, STK push sent
+      setWaitingForPayment(true);
       setLoading(false);
+      toast.success("Check your phone for the M-PESA PIN prompt!");
+      
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Failed to initialize checkout. Please try again.");
+      setLoading(false);
+      setActiveOrderId(null);
     }
   };
 
@@ -140,7 +168,7 @@ export default function CheckoutPage() {
           Checkout
         </h1>
 
-        <form onSubmit={handlePaystackPayment} className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+        <form onSubmit={handleMpesaPayment} className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           
           {/* Left: Forms */}
           <div className="lg:col-span-7 space-y-8">
@@ -161,8 +189,8 @@ export default function CheckoutPage() {
                   <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full border-gray-300 rounded-sm p-3 font-sans focus:ring-[var(--color-walnut)] focus:border-[var(--color-walnut)]" />
                 </div>
                 <div>
-                  <label className="block font-sans text-sm font-bold mb-2">Phone Number *</label>
-                  <input type="tel" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full border-gray-300 rounded-sm p-3 font-sans focus:ring-[var(--color-walnut)] focus:border-[var(--color-walnut)]" />
+                  <label className="block font-sans text-sm font-bold mb-2">M-PESA Phone Number *</label>
+                  <input type="tel" placeholder="e.g. 0712345678 or 254712345678" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full border-gray-300 rounded-sm p-3 font-sans focus:ring-[var(--color-walnut)] focus:border-[var(--color-walnut)]" />
                 </div>
               </div>
             </section>
@@ -294,25 +322,29 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <button 
-                type="submit"
-                disabled={loading}
-                className="w-full mt-8 bg-[var(--color-walnut)] text-[var(--color-cream)] font-sans font-bold py-4 rounded-sm hover:bg-[var(--color-charcoal)] transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-70"
-              >
-                {loading ? "Processing..." : (
-                  <>
-                    <ShieldCheck className="w-5 h-5" /> Pay KES {total.toLocaleString()}
-                  </>
-                )}
-              </button>
+              {waitingForPayment ? (
+                <div className="mt-8 p-6 bg-[var(--color-cream)] border border-[var(--color-walnut)] rounded-sm text-center animate-pulse">
+                  <h3 className="font-display font-bold text-lg text-[var(--color-walnut)] mb-2">Waiting for Payment...</h3>
+                  <p className="font-sans text-sm text-gray-600">Please check your phone for the M-PESA PIN prompt. Once you enter your PIN, this page will update automatically.</p>
+                </div>
+              ) : (
+                <button 
+                  type="submit"
+                  disabled={loading}
+                  className="w-full mt-8 bg-[var(--color-walnut)] text-[var(--color-cream)] font-sans font-bold py-4 rounded-sm hover:bg-[var(--color-charcoal)] transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-70"
+                >
+                  {loading ? "Processing..." : (
+                    <>
+                      <ShieldCheck className="w-5 h-5" /> Pay KES {total.toLocaleString()} with M-PESA
+                    </>
+                  )}
+                </button>
+              )}
               
               <div className="mt-4 flex flex-col items-center gap-2">
-                <p className="font-sans text-xs text-gray-400">Secured by Paystack</p>
-                <div className="flex gap-2 opacity-60">
-                  {/* Payment Method Icons (CSS shapes/text placeholders) */}
-                  <div className="w-8 h-5 bg-blue-800 rounded-sm flex items-center justify-center text-[8px] font-bold text-white">VISA</div>
-                  <div className="w-8 h-5 bg-red-600 rounded-sm flex items-center justify-center text-[8px] font-bold text-white">MC</div>
-                  <div className="w-8 h-5 bg-green-500 rounded-sm flex items-center justify-center text-[8px] font-bold text-white">M-PESA</div>
+                <p className="font-sans text-xs text-gray-400">Secured by Safaricom Daraja API</p>
+                <div className="flex gap-2 opacity-80">
+                  <div className="w-16 h-6 bg-green-500 rounded-sm flex items-center justify-center text-[10px] font-bold text-white tracking-widest">M-PESA</div>
                 </div>
               </div>
             </div>
