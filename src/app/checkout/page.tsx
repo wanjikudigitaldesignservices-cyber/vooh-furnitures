@@ -17,7 +17,7 @@ const BRANCHES = [
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const { items, clearCart } = useCartStore();
   
   const [mounted, setMounted] = useState(false);
