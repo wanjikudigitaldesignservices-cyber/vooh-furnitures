@@ -4,11 +4,15 @@ import Image from "next/image";
 import { Plus, Edit2, Trash2, Check, X as XIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
+import ProductFormModal from "./ProductFormModal";
 
 export default function AdminProductsPage() {
   const supabase = createClient();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
 
   useEffect(() => {
     fetchProducts();
@@ -39,11 +43,24 @@ export default function AdminProductsPage() {
     }
   };
 
+  const handleAddProduct = () => {
+    setEditingProduct(null);
+    setIsModalOpen(true);
+  };
+
+  const handleEditProduct = (product: any) => {
+    setEditingProduct(product);
+    setIsModalOpen(true);
+  };
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <h1 className="font-display text-3xl font-bold text-gray-900">Products Inventory</h1>
-        <button className="bg-[var(--color-walnut)] text-white px-4 py-2 rounded-md font-sans font-medium flex items-center gap-2 hover:bg-[var(--color-charcoal)] transition-colors">
+        <button 
+          onClick={handleAddProduct}
+          className="bg-[var(--color-walnut)] text-white px-4 py-2 rounded-md font-sans font-medium flex items-center gap-2 hover:bg-[var(--color-charcoal)] transition-colors"
+        >
           <Plus className="w-4 h-4" /> Add New Product
         </button>
       </div>
@@ -100,7 +117,7 @@ export default function AdminProductsPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-3">
-                      <button className="text-blue-600 hover:text-blue-900"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => handleEditProduct(product)} className="text-blue-600 hover:text-blue-900"><Edit2 className="w-4 h-4" /></button>
                       <button onClick={() => deleteProduct(product.id)} className="text-red-600 hover:text-red-900"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
@@ -110,6 +127,13 @@ export default function AdminProductsPage() {
           </table>
         </div>
       </div>
+      
+      <ProductFormModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        product={editingProduct}
+        onSuccess={fetchProducts}
+      />
     </div>
   );
 }

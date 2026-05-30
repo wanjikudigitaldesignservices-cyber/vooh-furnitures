@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
+import OrderReceiptEmail from "@/components/emails/OrderReceiptEmail";
+
+// Initialize Resend with fallback for testing
+const resend = process.env.RESEND_API_KEY 
+  ? new Resend(process.env.RESEND_API_KEY) 
+  : null;
 
 export async function POST(req: Request) {
   try {
@@ -21,13 +28,44 @@ export async function POST(req: Request) {
       const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
       // Find the order by checkout_request_id and update status to paid
-      const { error } = await supabaseAdmin
+      const { data: order, error } = await supabaseAdmin
         .from("orders")
         .update({ status: "paid" })
-        .eq("checkout_request_id", checkoutRequestId);
+        .eq("checkout_request_id", checkoutRequestId)
+        .select()
+        .single();
 
       if (error) {
         console.error("Webhook Supabase update error:", error);
+      } else if (order && resend) {
+        // Send email receipt
+        try {
+          // If the admin hasn't set a custom domain, use the Resend testing email
+          const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+          // If testing with onboarding@resend.dev, you can only send TO the verified email address
+          // In production, this would be order.customer_email
+          const toEmail = process.env.RESEND_FROM_EMAIL ? order.customer_email : "onboarding@resend.dev";
+
+          await resend.emails.send({
+            from: `Vooh Furnitures <${fromEmail}>`,
+            to: toEmail,
+            subject: `Receipt for your order #${order.id.split('-')[0].toUpperCase()}`,
+            react: OrderReceiptEmail({
+              orderId: order.id,
+              customerName: order.customer_name,
+              items: order.items,
+              subtotal: order.subtotal,
+              deliveryFee: order.delivery_fee,
+              total: order.total,
+              deliveryMethod: order.delivery_address ? "home" : "pickup",
+              deliveryAddress: order.delivery_address,
+              branchPickup: order.branch_pickup,
+            }),
+          });
+          console.log(`Receipt email sent to ${toEmail}`);
+        } catch (emailErr) {
+          console.error("Failed to send receipt email:", emailErr);
+        }
       }
     } else {
       console.log(`M-PESA transaction failed or was cancelled. ResultCode: ${resultCode}, Desc: ${callback.ResultDesc}`);
