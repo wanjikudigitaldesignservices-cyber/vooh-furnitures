@@ -33,33 +33,15 @@ export default function CheckoutPage() {
   const [pickupBranch, setPickupBranch] = useState(BRANCHES[0].name);
   const [notes, setNotes] = useState("");
 
+  const [waitingForPayment, setWaitingForPayment] = useState(false);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+
   useEffect(() => {
     setMounted(true);
     if (items.length === 0) {
       router.push("/shop");
     }
   }, [items, router]);
-
-  if (!mounted || items.length === 0) return null;
-
-  const subtotal = items.reduce((acc, item) => acc + (item.price * item.qty), 0);
-  
-  // Calculate delivery fee
-  let deliveryFee = 0;
-  if (deliveryMethod === "home") {
-    if (subtotal > 50000 && city === "Nairobi") {
-      deliveryFee = 0;
-    } else if (city === "Nairobi") {
-      deliveryFee = 500;
-    } else {
-      deliveryFee = 1200;
-    }
-  }
-  
-  const total = subtotal + deliveryFee;
-
-  const [waitingForPayment, setWaitingForPayment] = useState(false);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeOrderId) return;
@@ -89,6 +71,24 @@ export default function CheckoutPage() {
       supabase.removeChannel(channel);
     };
   }, [activeOrderId, supabase, router, clearCart]);
+
+  if (!mounted || items.length === 0) return null;
+
+  const subtotal = items.reduce((acc, item) => acc + (item.price * item.qty), 0);
+  
+  // Calculate delivery fee
+  let deliveryFee = 0;
+  if (deliveryMethod === "home") {
+    if (subtotal > 50000 && city === "Nairobi") {
+      deliveryFee = 0;
+    } else if (city === "Nairobi") {
+      deliveryFee = 500;
+    } else {
+      deliveryFee = 1200;
+    }
+  }
+  
+  const total = subtotal + deliveryFee;
 
   const handleMpesaPayment = async (e: React.FormEvent) => {
     e.preventDefault();
